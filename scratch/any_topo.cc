@@ -5,6 +5,8 @@
 #include "ns3/applications-module.h"
 #include "ns3/network-module.h"
 #include "ns3/internet-module.h"
+#include "ns3/ipv4-static-routing-helper.h"
+#include "ns3/ipv4-routing-table-entry.h"
 #include <iostream>
 #include <fstream>
 #include <vector>
@@ -15,6 +17,153 @@ using namespace ns3;
 // IP地址生成函数
 Ipv4Address node_id_to_ip(uint32_t id) {
     return Ipv4Address(0x0b000001 + ((id / 256) * 0x00010000) + ((id % 256) * 0x00000100));
+}
+
+// 在main函数中添加路由表读取函数
+void ReadAndApplyRoutingTable(const std::vector<Ptr<Node>>& node_list,
+                              Ipv4StaticRoutingHelper& staticRoutingHelper,
+                              const std::map<std::pair<uint32_t, uint32_t>, Ipv4InterfaceContainer>& interface_map) {
+    
+    std::string routing_file = "scratch/routes.txt";
+    std::ifstream routef(routing_file);
+    
+    if (!routef.is_open()) {
+        std::cerr << "无法打开路由表文件: " << routing_file << std::endl;
+        return;
+    }
+    
+    std::string line;
+    while (std::getline(routef, line)) {
+        // 跳过注释和空行
+        if (line.empty() || line[0] == '#') {
+            continue;
+        }
+        std::istringstream iss(line);
+        std::string src_node_str, route_type;
+        iss >> src_node_str >> route_type;
+        
+        uint32_t src_node = std::stoi(src_node_str);
+        
+        if (src_node >= node_list.size()) {
+            std::cerr << "无效的源节点ID: " << src_node << std::endl;
+            continue;
+        }
+        
+        Ptr<Ipv4StaticRouting> staticRouting = staticRoutingHelper.GetStaticRouting(
+            node_list[src_node]->GetObject<Ipv4>());
+        
+        if (route_type == "default") {
+            // 默认路由: src_node default next_hop interface_index metric
+            std::string next_hop_str;
+            uint32_t interface_index, metric;
+            iss >> next_hop_str >> interface_index >> metric;
+            
+            uint32_t next_hop_node = std::stoi(next_hop_str);
+            
+            // 查找连接这两个节点的接口IP
+            Ipv4Address next_hop_ip;
+            bool found = false;
+            for (auto& link : interface_map) {
+                uint32_t src = link.first.first;
+                uint32_t dst = link.first.second;
+                
+                if ((src == src_node && dst == next_hop_node) || 
+                    (src == next_hop_node && dst == src_node)) {
+                    if (src == src_node) {
+                        next_hop_ip = link.second.GetAddress(1);
+                    } else {
+                        next_hop_ip = link.second.GetAddress(0);
+                    }
+                    found = true;
+                    break;
+                }
+            }
+            
+            if (found) {
+                // 使用网络路由替代默认路由，目标为0.0.0.0/0
+                staticRouting->AddNetworkRouteTo(Ipv4Address("0.0.0.0"), 
+                                                Ipv4Mask("0.0.0.0"), 
+                                                next_hop_ip, 
+                                                interface_index, 
+                                                metric);
+                std::cout << "添加默认路由: 节点 " << src_node << " -> " << next_hop_ip << std::endl;
+            }
+        }
+        else if (route_type == "host") {
+            // 主机路由: src_node host dst_host next_hop interface_index metric
+            std::string dst_host_str, next_hop_str;
+            uint32_t interface_index, metric;
+            iss >> dst_host_str >> next_hop_str >> interface_index >> metric;
+            
+            uint32_t dst_host = std::stoi(dst_host_str);
+            Ipv4Address dst_ip = node_id_to_ip(dst_host);
+            
+            Ipv4Address next_hop_ip;
+            if (next_hop_str == "0.0.0.0") {
+                // 直连主机，使用特殊地址
+                next_hop_ip = Ipv4Address::GetZero();
+            } else {
+                uint32_t next_hop_node = std::stoi(next_hop_str);
+                // 查找下一跳IP
+                bool found = false;
+                for (auto& link : interface_map) {
+                    uint32_t src = link.first.first;
+                    uint32_t dst = link.first.second;
+                    
+                    if ((src == src_node && dst == next_hop_node) || 
+                        (src == next_hop_node && dst == src_node)) {
+                        if (src == src_node) {
+                            next_hop_ip = link.second.GetAddress(1);
+                        } else {
+                            next_hop_ip = link.second.GetAddress(0);
+                        }
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) continue;
+            }
+            
+            staticRouting->AddHostRouteTo(dst_ip, next_hop_ip, interface_index, metric);
+            std::cout << "添加主机路由: 节点 " << src_node << " -> " << dst_ip << std::endl;
+        }
+        else if (route_type == "network") {
+            // 网络路由: src_node network dst_network netmask next_hop interface_index metric
+            std::string dst_network_str, netmask_str, next_hop_str;
+            uint32_t interface_index, metric;
+            iss >> dst_network_str >> netmask_str >> next_hop_str >> interface_index >> metric;
+            
+            Ipv4Address dst_network(dst_network_str.c_str());
+            Ipv4Mask netmask(netmask_str.c_str());
+            
+            uint32_t next_hop_node = std::stoi(next_hop_str);
+            
+            // 查找下一跳IP
+            Ipv4Address next_hop_ip;
+            bool found = false;
+            for (auto& link : interface_map) {
+                uint32_t src = link.first.first;
+                uint32_t dst = link.first.second;
+                
+                if ((src == src_node && dst == next_hop_node) || 
+                    (src == next_hop_node && dst == src_node)) {
+                    if (src == src_node) {
+                        next_hop_ip = link.second.GetAddress(1);
+                    } else {
+                        next_hop_ip = link.second.GetAddress(0);
+                    }
+                    found = true;
+                    break;
+                }
+            }
+            
+            if (found) {
+                staticRouting->AddNetworkRouteTo(dst_network, netmask, next_hop_ip, interface_index, metric);
+                std::cout << "添加网络路由: 节点 " << src_node << " -> " << dst_network << "/" << netmask << std::endl;
+            }
+        }
+    }
+    routef.close();
 }
 
 int main(int argc, char *argv[]) {
@@ -112,15 +261,23 @@ int main(int argc, char *argv[]) {
     
     topof.close();
 
-    // 分配IP地址
+
+    std::map<std::pair<uint32_t, uint32_t>, Ipv4InterfaceContainer> interface_map;
+
+    // 分配IP地址并保存接口信息
     ipv4.SetBase("10.1.1.0", "255.255.255.0");
     for (auto& link : links) {
-        ipv4.Assign(link.second);
+        Ipv4InterfaceContainer interfaces = ipv4.Assign(link.second);
+        interface_map[link.first] = interfaces;
         ipv4.NewNetwork();
     }
 
     // 设置路由
-    Ipv4GlobalRoutingHelper::PopulateRoutingTables();
+    //Ipv4GlobalRoutingHelper::PopulateRoutingTables();//Dijkstra算法计算最短路径
+
+    // 添加自定义路由
+    Ipv4StaticRoutingHelper staticRoutingHelper;
+    ReadAndApplyRoutingTable(node_list, staticRoutingHelper, interface_map);
 
     std::cout << "拓扑构建完成!" << std::endl;
     std::cout << "总节点数: " << nodes.GetN() << std::endl;
