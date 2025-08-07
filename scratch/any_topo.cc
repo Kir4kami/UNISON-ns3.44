@@ -165,6 +165,9 @@ void ReadAndApplyRoutingTable(const std::vector<Ptr<Node>>& node_list,
     }
     routef.close();
 }
+void ReceivedPacket(Ptr<const Packet> packet, const Address &address) {
+    std::cout << "接收到数据包，大小: " << packet->GetSize() << " 字节，来自地址: " << address << std::endl;
+}
 
 int main(int argc, char *argv[]) {
     // 命令行参数
@@ -180,35 +183,26 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    // 读取基本信息
-    uint32_t node_num, switch_num, tors, link_num;
-    uint64_t leaf_server_capacity, spine_leaf_capacity;
-    topof >> node_num >> switch_num >> tors >> link_num >> leaf_server_capacity >> spine_leaf_capacity;
+    // 读取基本信息（简化格式：节点数 交换机数 链路数）
+    uint32_t node_num, switch_num, link_num;
+    topof >> node_num >> switch_num >> link_num;
+    
+    // 计算服务器数量
+    uint32_t server_num = node_num - switch_num;
 
-    std::cout << "节点数: " << node_num << ", 交换机数: " << switch_num 
-              << ", 链路数: " << link_num << std::endl;
-
-    // 读取交换机ID
-    std::vector<uint32_t> switch_ids(switch_num);
-    for (uint32_t i = 0; i < switch_num; i++) {
-        topof >> switch_ids[i];
-    }
+    std::cout << "节点数: " << node_num << ", 服务器数: " << server_num 
+              << ", 交换机数: " << switch_num << ", 链路数: " << link_num << std::endl;
 
     // 创建节点容器
     NodeContainer nodes;
     std::vector<Ptr<Node>> node_list(node_num);
     
-    // 创建节点 (0: 服务器, 1: ToR交换机, 2: 脊交换机)
+    // 创建节点 (0: 服务器, 1: 交换机)
     std::vector<uint32_t> node_types(node_num, 0); // 默认为服务器
     
-    // 标记交换机节点类型
-    for (uint32_t i = 0; i < switch_num; i++) {
-        uint32_t sid = switch_ids[i];
-        if (i < tors) {
-            node_types[sid] = 1; // ToR交换机
-        } else {
-            node_types[sid] = 2; // 脊交换机
-        }
+    // 标记交换机节点（编号从server_num开始的节点是交换机）
+    for (uint32_t i = server_num; i < node_num; i++) {
+        node_types[i] = 1; // 标记为交换机
     }
 
     // 创建NS-3节点
@@ -221,20 +215,13 @@ int main(int argc, char *argv[]) {
     InternetStackHelper internet;
     internet.Install(nodes);
 
-    // 为服务器分配IP地址
-    std::vector<Ipv4Address> server_addresses(node_num);
-    for (uint32_t i = 0; i < node_num; i++) {
-        if (node_types[i] == 0) { // 服务器
-            server_addresses[i] = node_id_to_ip(i);
-        }
-    }
-
     // 创建网络连接
     PointToPointHelper p2p;
     Ipv4AddressHelper ipv4;
     
     // 存储网络接口信息
     std::map<std::pair<uint32_t, uint32_t>, NetDeviceContainer> links;
+    std::map<std::pair<uint32_t, uint32_t>, Ipv4InterfaceContainer> interface_map;
     
     // 读取并创建链路
     for (uint32_t i = 0; i < link_num; i++) {
@@ -261,30 +248,110 @@ int main(int argc, char *argv[]) {
     
     topof.close();
 
-
-    std::map<std::pair<uint32_t, uint32_t>, Ipv4InterfaceContainer> interface_map;
-
     // 分配IP地址并保存接口信息
     ipv4.SetBase("10.1.1.0", "255.255.255.0");
+    std::vector<Ipv4Address> server_addresses(node_num);
+    
     for (auto& link : links) {
         Ipv4InterfaceContainer interfaces = ipv4.Assign(link.second);
         interface_map[link.first] = interfaces;
+        
+        // 记录服务器的IP地址
+        uint32_t src = link.first.first;
+        uint32_t dst = link.first.second;
+        
+        if (node_types[src] == 0) { // 如果src是服务器
+            server_addresses[src] = interfaces.GetAddress(0);
+            std::cout << "服务器 " << src << " 的IP地址: " << server_addresses[src] << std::endl;
+        }
+        if (node_types[dst] == 0) { // 如果dst是服务器
+            server_addresses[dst] = interfaces.GetAddress(1);
+            std::cout << "服务器 " << dst << " 的IP地址: " << server_addresses[dst] << std::endl;
+        }
+        
         ipv4.NewNetwork();
     }
 
-    // 设置路由
-    //Ipv4GlobalRoutingHelper::PopulateRoutingTables();//Dijkstra算法计算最短路径
+    // 使用全局路由而不是自定义路由
+    Ipv4GlobalRoutingHelper::PopulateRoutingTables();
+    
+    // 打印路由表
+    std::cout << "=== 打印路由表 ===" << std::endl;
+    Ptr<OutputStreamWrapper> stream = Create<OutputStreamWrapper>(&std::cout);
+    Ipv4RoutingHelper::PrintRoutingTableAt(Seconds(0.1), node_list[0], stream);
+    Ipv4RoutingHelper::PrintRoutingTableAt(Seconds(0.1), node_list[1], stream);
+    std::cout << "=================" << std::endl;
 
-    // 添加自定义路由
-    Ipv4StaticRoutingHelper staticRoutingHelper;
-    ReadAndApplyRoutingTable(node_list, staticRoutingHelper, interface_map);
+    // 添加UDP应用: 服务器之间互相发送数据包
+    uint16_t sink_port = 9;  // Discard端口
+    ApplicationContainer sink_apps;
+    std::vector<uint32_t> server_nodes; // 收集所有服务器节点
+    
+    // 收集服务器节点
+    for (uint32_t i = 0; i < server_num; i++) {
+        server_nodes.push_back(i);
+    }
+    
+    std::cout << "找到 " << server_nodes.size() << " 个服务器节点" << std::endl;
+    
+    // 在所有服务器节点上安装PacketSink应用
+    for (uint32_t server_id : server_nodes) {
+        PacketSinkHelper sink_helper("ns3::UdpSocketFactory", 
+                                    InetSocketAddress(Ipv4Address::GetAny(), sink_port));
+        ApplicationContainer sink_app = sink_helper.Install(node_list[server_id]);
+        sink_app.Start(Seconds(0.0));
+        sink_app.Stop(Seconds(30.0));
+        sink_apps.Add(sink_app);
+        
+        // 获取PacketSink指针并添加接收回调
+        Ptr<PacketSink> packetSink = DynamicCast<PacketSink>(sink_app.Get(0));
+        packetSink->TraceConnectWithoutContext("Rx", MakeCallback(&ReceivedPacket));
+        
+        std::cout << "在服务器 " << server_id << " 上安装PacketSink应用" << std::endl;
+    }
+    
+    // 在前两个服务器之间添加UDP Echo客户端
+    if (server_nodes.size() >= 2) {
+        uint32_t source_node = server_nodes[0];
+        uint32_t dest_node = server_nodes[1];
+        Ipv4Address dest_address = server_addresses[dest_node]; // 使用实际分配的IP地址
+        
+        std::cout << "使用实际分配的IP地址进行通信:" << std::endl;
+        std::cout << "源服务器 " << source_node << " IP: " << server_addresses[source_node] << std::endl;
+        std::cout << "目标服务器 " << dest_node << " IP: " << dest_address << std::endl;
+        
+        UdpEchoClientHelper client(dest_address, sink_port);
+        client.SetAttribute("MaxPackets", UintegerValue(5));
+        client.SetAttribute("Interval", TimeValue(Seconds(1.0)));
+        client.SetAttribute("PacketSize", UintegerValue(1024));
+        
+        ApplicationContainer client_apps = client.Install(node_list[source_node]);
+        client_apps.Start(Seconds(2.0));
+        client_apps.Stop(Seconds(20.0));
+        
+        std::cout << "在服务器 " << source_node << " 和 " << dest_node 
+                  << " 之间配置UDP数据传输" << std::endl;
+    }
 
     std::cout << "拓扑构建完成!" << std::endl;
     std::cout << "总节点数: " << nodes.GetN() << std::endl;
     std::cout << "链路数: " << link_num << std::endl;
 
     // 运行仿真
+    Simulator::Stop(Seconds(30.0)); // 设置仿真停止时间
     Simulator::Run();
+    
+    // 仿真结束后打印统计信息
+    std::cout << "=== 仿真结束后的统计信息 ===" << std::endl;
+    for (uint32_t i = 0; i < std::min(uint32_t(2), server_num); i++) {
+        Ptr<Application> app = node_list[i]->GetApplication(0);
+        Ptr<PacketSink> sink = DynamicCast<PacketSink>(app);
+        if (sink) {
+            std::cout << "服务器 " << i << " 接收到 " << sink->GetTotalRx() << " 字节" << std::endl;
+        }
+    }
+    std::cout << "========================" << std::endl;
+    
     Simulator::Destroy();
     return 0;
 }
