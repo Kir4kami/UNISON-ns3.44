@@ -271,9 +271,12 @@ int main(int argc, char *argv[]) {
         
         ipv4.NewNetwork();
     }
-
     // 使用全局路由而不是自定义路由
-    Ipv4GlobalRoutingHelper::PopulateRoutingTables();
+    //Ipv4GlobalRoutingHelper::PopulateRoutingTables();
+
+    // 使用静态路由
+    Ipv4StaticRoutingHelper staticRoutingHelper;
+    ReadAndApplyRoutingTable(node_list, staticRoutingHelper, interface_map);
     
     // 打印路由表
     std::cout << "=== 打印路由表 ===" << std::endl;
@@ -343,10 +346,10 @@ int main(int argc, char *argv[]) {
     
     // 仿真结束后打印统计信息
     std::cout << "=== 仿真结束后的统计信息 ===" << std::endl;
-    for (uint32_t i = 0; i < std::min(uint32_t(2), server_num); i++) {
+    for (uint32_t i = 0; i < server_num; i++) {
         Ptr<Application> app = node_list[i]->GetApplication(0);
         Ptr<PacketSink> sink = DynamicCast<PacketSink>(app);
-        if (sink) {
+        if (sink->GetTotalRx()) {// 如果接收到数据
             std::cout << "服务器 " << i << " 接收到 " << sink->GetTotalRx() << " 字节" << std::endl;
         }
     }
