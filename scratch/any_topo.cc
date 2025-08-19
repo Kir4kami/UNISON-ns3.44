@@ -26,6 +26,22 @@ using namespace ns3;
 // 全局日志文件流
 std::ofstream g_logFile;
 
+// 全局变量：当前测试编号和名称
+static int current_test_number = 0;
+static std::string current_test_name = "";
+
+// IP地址到测试编号的映射
+static std::map<std::string, int> ip_to_test_map;
+
+// 根据源IP地址获取测试编号的函数
+int getTestNumberFromIP(const std::string& srcIP) {
+    auto it = ip_to_test_map.find(srcIP);
+    if (it != ip_to_test_map.end()) {
+        return it->second;
+    }
+    return 0; // 未知测试
+}
+
 // 获取当前时间戳字符串
 std::string getCurrentTimestamp() {
     auto now = std::time(nullptr);
@@ -239,14 +255,19 @@ void PacketTrace(std::string context, Ptr<const Packet> packet) {
         UdpHeader udpHeader;
         
         if (copy->PeekHeader(ipv4Header)) {
+            // 根据源IP地址确定测试编号
+            std::ostringstream srcIPStream;
+            srcIPStream << ipv4Header.GetSource();
+            int testNum = getTestNumberFromIP(srcIPStream.str());
+            
             std::ostringstream oss;
-            oss << "📦 数据包跟踪 - 节点" << nodeStr << "/接口" << deviceStr 
+            oss << "📦 [测试" << testNum << "] 数据包跟踪 - 节点" << nodeStr << "/接口" << deviceStr 
                 << ": " << ipv4Header.GetSource() << " -> " << ipv4Header.GetDestination()
                 << " (大小: " << packet->GetSize() << " 字节, TTL: " << (int)ipv4Header.GetTtl() << ")";
             logMessage(oss.str());
             
             // 同时输出到控制台以便实时观察
-            std::cout << "[实时] " << oss.str() << std::endl;
+            std::cout << "[实时测试" << testNum << "] " << oss.str() << std::endl;
         }
     }
 }
@@ -264,14 +285,19 @@ void IpForwardTrace(std::string context, const Ipv4Header &header, Ptr<const Pac
         }
     }
     
+    // 根据源IP地址确定测试编号
+    std::ostringstream srcIPStream;
+    srcIPStream << header.GetSource();
+    int testNum = getTestNumberFromIP(srcIPStream.str());
+    
     std::ostringstream oss;
-    oss << "🔀 节点" << nodeId << " IP转发: " << header.GetSource() 
+    oss << "🔀 [测试" << testNum << "] 节点" << nodeId << " IP转发: " << header.GetSource() 
         << " -> " << header.GetDestination() << " 通过接口" << interface 
         << " (大小: " << packet->GetSize() << " 字节, TTL: " << (int)header.GetTtl() << ")";
     logMessage(oss.str());
     
     // 同时输出到控制台以便实时观察
-    std::cout << "[实时] " << oss.str() << std::endl;
+    std::cout << "[实时测试" << testNum << "] " << oss.str() << std::endl;
 }
 
 // IP丢包跟踪回调函数
@@ -298,14 +324,19 @@ void IpDropTrace(std::string context, const Ipv4Header &header, Ptr<const Packet
         }
     }
     
+    // 根据源IP地址确定测试编号
+    std::ostringstream srcIPStream;
+    srcIPStream << header.GetSource();
+    int testNum = getTestNumberFromIP(srcIPStream.str());
+    
     std::ostringstream oss;
-    oss << "❌ 节点" << nodeId << " 数据包丢弃: " << header.GetSource() 
+    oss << "❌ [测试" << testNum << "] 节点" << nodeId << " 数据包丢弃: " << header.GetSource() 
         << " -> " << header.GetDestination() << " 原因: " << dropReason 
         << " (接口: " << interface << ", 大小: " << packet->GetSize() << " 字节)";
     logMessage(oss.str());
     
     // 同时输出到控制台以便实时观察
-    std::cout << "[实时] " << oss.str() << std::endl;
+    std::cout << "[实时测试" << testNum << "] " << oss.str() << std::endl;
 }
 
 void ReceivedPacket(Ptr<const Packet> packet, const Address &address) {
@@ -381,10 +412,19 @@ void RunTestWithPath(uint32_t source_node, uint32_t dest_node,
                      const std::vector<Ptr<Node>>& node_list,
                      const std::vector<Ipv4Address>& server_addresses,
                      uint16_t sink_port, const std::string& test_name,
-                     const std::string& expected_path,
+                     const std::string& expected_path, int test_number,
                      uint32_t max_packets = 2, double interval = 2.0, 
                      uint32_t packet_size = 512, double start_time = 3.0, 
                      double stop_time = 10.0) {
+    
+    // 设置当前测试编号
+    current_test_number = test_number;
+    current_test_name = test_name;
+    
+    // 将源IP地址映射到测试编号
+    std::ostringstream srcIPStream;
+    srcIPStream << server_addresses[source_node];
+    ip_to_test_map[srcIPStream.str()] = test_number;
     
     // 检查节点范围
     if (source_node >= node_list.size() || dest_node >= node_list.size()) {
@@ -658,7 +698,7 @@ int main(int argc, char *argv[]) {
     logMessage("🔍 启用简化的数据包跟踪功能");
     
     // 启用关键节点的数据包跟踪
-    std::vector<uint32_t> trace_nodes = {0, 1, 8, 13, 48, 50, 51}; // 测试相关的关键节点，添加13和51
+    std::vector<uint32_t> trace_nodes = {0, 1, 8, 13, 16, 42, 48, 50, 51, 52, 54, 58, 60, 61, 62, 63}; // 所有测试相关的关键节点
     for (uint32_t node_id : trace_nodes) {
         if (node_id < node_num) {
             // 启用点对点设备的发送和接收跟踪
@@ -757,24 +797,24 @@ int main(int argc, char *argv[]) {
     // 测试1:  - 服务器0和服务器1 (都连接到交换机48)
     RunTestWithPath(0, 1, node_list, server_addresses, sink_port, 
                    "测试1: 服务器0 -> 服务器1", 
-                   "服务器0和服务器1同时直连交换机48",
+                   "服务器0和服务器1同时直连交换机48", 1,
                    2, 2.0, 512, 3.0, 10.0);
     
     // 测试2:  - 服务器1向服务器8发送数据包 (交换机48→交换机50)
     RunTestWithPath(1, 8, node_list, server_addresses, sink_port, 
                    "测试2: 服务器1 -> 服务器8", 
-                   "服务器1与交换机48直连，服务器8与交换机50直连，交换机48和交换机50直连",
+                   "服务器1与交换机48直连，服务器8与交换机50直连，交换机48和交换机50直连", 2,
                    3, 3.0, 768, 15.0, 30.0);
     
     // 测试3:  - 服务器13向服务器1发送数据包 (交换机51→交换机48)
     RunTestWithPath(13, 1, node_list, server_addresses, sink_port, 
                    "测试3: 服务器13 -> 服务器1", 
-                   "服务器13与交换机51直连，服务器1与交换机48直连，交换机51与交换机48不直连，有多跳路由",
+                   "服务器13与交换机51直连，服务器1与交换机48直连，交换机51与交换机48不直连，有多跳路由", 3,
                    4, 2.5, 1024, 35.0, 50.0);
     //测试4： 服务器16向服务器42发送数据包
     RunTestWithPath(16, 42, node_list, server_addresses, sink_port, 
                    "测试4: 服务器16 -> 服务器42", 
-                   "服务器16与交换机52直连，服务器42与交换机58直连，交换机52和交换机58不直连，有多跳路由",
+                   "服务器16与交换机52直连，服务器42与交换机58直连，交换机52和交换机58不直连，有多跳路由", 4,
                    2, 2.0, 512, 3.0, 10.0);           
 
     logMessage("拓扑构建完成!");
