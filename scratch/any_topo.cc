@@ -815,7 +815,12 @@ int main(int argc, char *argv[]) {
     RunTestWithPath(16, 42, node_list, server_addresses, sink_port, 
                    "测试4: 服务器16 -> 服务器42", 
                    "服务器16与交换机52直连，服务器42与交换机58直连，交换机52和交换机58不直连，有多跳路由", 4,
-                   2, 2.0, 512, 3.0, 10.0);           
+                   2, 2.0, 512, 3.0, 10.0);  
+    //测试5： 服务器23向服务器35发送数据包
+    RunTestWithPath(23,35, node_list, server_addresses, sink_port, 
+                   "测试5: 服务器23 -> 服务器35", 
+                   "some", 5,
+                   2, 2.0, 512, 3.0, 10.0);  
 
     logMessage("拓扑构建完成!");
     {
@@ -833,7 +838,7 @@ int main(int argc, char *argv[]) {
     std::cout << "=== 仿真结束后的统计信息 ===" << std::endl;
     
     // 重点关注测试节点的统计信息
-    std::vector<uint32_t> test_nodes = {1, 8, 13, 16, 42}; // 测试中涉及的关键节点
+    std::vector<uint32_t> test_nodes = {1, 8, 13, 16, 42, 23,35}; // 测试中涉及的关键节点
     
     for (uint32_t i = 0; i < server_num; i++) {
         Ptr<Application> app = node_list[i]->GetApplication(0);
@@ -882,7 +887,12 @@ int main(int argc, char *argv[]) {
     // 测试4:  (服务器16 -> 服务器42)
     TestResult test4 = AnalyzeTestResult(42, node_list, "测试4", 16, 1024); // 2个包 × 512字节 = 1024字节
     PrintTestResult(test4);
-    
+
+    // 测试5:  (服务器23 -> 服务器35)
+    TestResult test5 = AnalyzeTestResult(35, node_list, "测试5", 23, 1024); // 2个包 × 512字节 = 1024字节
+    PrintTestResult(test5);
+
+
     logMessage("\n\n=== 🚀🚀🚀🚀网络仿真测试结束🚀🚀🚀🚀 ===\n\n");
     std::cout << "========================" << std::endl;
     
