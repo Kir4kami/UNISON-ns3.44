@@ -20,6 +20,8 @@
 #include <ctime>
 #include <iomanip>
 #include <sstream>
+#include <chrono>
+#include "ns3/mtp-interface.h"
 
 using namespace ns3;
 
@@ -56,14 +58,6 @@ void logMessage(const std::string& message) {
     std::string timestamp = getCurrentTimestamp();
     g_logFile << "[" << timestamp << "] " << message << std::endl;
     g_logFile.flush(); // 立即刷新到文件
-}
-
-// IP地址生成函数（修复版本）
-// 注意：这个函数现在需要访问实际的server_addresses，所以需要重构
-Ipv4Address node_id_to_ip(uint32_t id) {
-    // 这个函数已废弃，应该使用实际的server_addresses
-    // 临时返回错误的地址以便调试
-    return Ipv4Address(0x0b000001 + ((id / 256) * 0x00010000) + ((id % 256) * 0x00000100));
 }
 
 // 在main函数中添加路由表读取函数
@@ -128,7 +122,7 @@ void ReadAndApplyRoutingTable(const std::vector<Ptr<Node>>& node_list,
             }
             
             if (found) {
-                // 使用网络路由替代默认路由，目标为0.0.0.0/0
+                // 使用网络路由替代默认路由,目标为0.0.0.0/0
                 staticRouting->AddNetworkRouteTo(Ipv4Address("0.0.0.0"), 
                                                 Ipv4Mask("0.0.0.0"), 
                                                 next_hop_ip, 
@@ -139,7 +133,7 @@ void ReadAndApplyRoutingTable(const std::vector<Ptr<Node>>& node_list,
                 logMessage(oss.str());
             } else {
                 std::ostringstream oss;
-                oss << "警告: 节点 " << src_node << " 到节点 " << next_hop_node << " 没有直接连接，跳过默认路由";
+                oss << "警告: 节点 " << src_node << " 到节点 " << next_hop_node << " 没有直接连接,跳过默认路由";
                 logMessage(oss.str());
             }
         }
@@ -153,7 +147,7 @@ void ReadAndApplyRoutingTable(const std::vector<Ptr<Node>>& node_list,
             // 使用实际分配的IP地址而不是计算的地址
             if (dst_host >= server_addresses.size() || server_addresses[dst_host].IsAny()) {
                 std::ostringstream oss;
-                oss << "警告: 服务器 " << dst_host << " 的IP地址未分配，跳过主机路由";
+                oss << "警告: 服务器 " << dst_host << " 的IP地址未分配,跳过主机路由";
                 logMessage(oss.str());
                 continue;
             }
@@ -161,7 +155,7 @@ void ReadAndApplyRoutingTable(const std::vector<Ptr<Node>>& node_list,
             
             Ipv4Address next_hop_ip;
             if (next_hop_str == "0.0.0.0") {
-                // 直连主机，使用特殊地址
+                // 直连主机,使用特殊地址
                 next_hop_ip = Ipv4Address::GetZero();
             } else {
                 uint32_t next_hop_node = std::stoi(next_hop_str);
@@ -346,7 +340,7 @@ void ReceivedPacket(Ptr<const Packet> packet, const Address &address) {
     
     // 写入日志而不是控制台
     std::ostringstream oss;
-    oss << "✅ 接收到数据包，大小: " << packet->GetSize() << " 字节，来自IP: " << senderIP;
+    oss << "✅ 接收到数据包,大小: " << packet->GetSize() << " 字节,来自IP: " << senderIP;
     logMessage(oss.str());
     
     // 同时输出到控制台以便实时观察
@@ -371,7 +365,7 @@ void RunTest(uint32_t source_node, uint32_t dest_node,
     // 检查IP地址是否已分配
     if (server_addresses[source_node].IsAny() || server_addresses[dest_node].IsAny()) {
         std::cerr << "警告: 源节点" << source_node << "或目标节点" << dest_node 
-                  << "的IP地址未正确分配，跳过测试" << std::endl;
+                  << "的IP地址未正确分配,跳过测试" << std::endl;
         return;
     }
     
@@ -401,8 +395,8 @@ void RunTest(uint32_t source_node, uint32_t dest_node,
     
     // 记录配置信息
     std::ostringstream config_info;
-    config_info << "⚙️ 配置" << test_name << ": " << max_packets << "个数据包，每" 
-                << interval << "秒发送一次，大小" << packet_size << "字节";
+    config_info << "⚙️ 配置" << test_name << ": " << max_packets << "个数据包,每" 
+                << interval << "秒发送一次,大小" << packet_size << "字节";
     logMessage(config_info.str());
     std::cout << "配置UDP数据传输: 服务器" << source_node << " -> 服务器" << dest_node << std::endl;
 }
@@ -435,7 +429,7 @@ void RunTestWithPath(uint32_t source_node, uint32_t dest_node,
     // 检查IP地址是否已分配
     if (server_addresses[source_node].IsAny() || server_addresses[dest_node].IsAny()) {
         std::cerr << "警告: 源节点" << source_node << "或目标节点" << dest_node 
-                  << "的IP地址未正确分配，跳过测试" << std::endl;
+                  << "的IP地址未正确分配,跳过测试" << std::endl;
         return;
     }
     
@@ -467,8 +461,8 @@ void RunTestWithPath(uint32_t source_node, uint32_t dest_node,
     
     // 记录配置信息
     std::ostringstream config_info;
-    config_info << "⚙️ 配置" << test_name << ": " << max_packets << "个数据包，每" 
-                << interval << "秒发送一次，大小" << packet_size << "字节";
+    config_info << "⚙️ 配置" << test_name << ": " << max_packets << "个数据包,每" 
+                << interval << "秒发送一次,大小" << packet_size << "字节";
     logMessage(config_info.str());
     std::cout << "配置UDP数据传输: 服务器" << source_node << " -> 服务器" << dest_node << std::endl;
 }
@@ -518,19 +512,20 @@ void PrintTestResult(const TestResult& result) {
     } else {
         std::string failMsg = "❌ " + result.test_name + "失败: 服务器" + 
                             std::to_string(result.source_node) + " -> 服务器" + 
-                            std::to_string(result.dest_node) + "，实际接收: " + 
-                            std::to_string(result.actual_bytes) + " 字节，期望: " + 
+                            std::to_string(result.dest_node) + ",实际接收: " + 
+                            std::to_string(result.actual_bytes) + " 字节,期望: " + 
                             std::to_string(result.expected_bytes) + " 字节";
         logMessage(failMsg);
         std::cout << "❌ " + result.test_name + "失败: 服务器" + 
                      std::to_string(result.source_node) + " -> 服务器" + 
                      std::to_string(result.dest_node) << std::endl;
         std::cout << "   实际接收: " << result.actual_bytes 
-                  << " 字节，期望: " << result.expected_bytes << " 字节" << std::endl;
+                  << " 字节,期望: " << result.expected_bytes << " 字节" << std::endl;
     }
 }
 
 int main(int argc, char *argv[]) {
+    MtpInterface::Enable(8);
     // 初始化日志文件
     std::string logFileName = "scratch/LOG_any_topo.log";
     g_logFile.open(logFileName, std::ios::out | std::ios::app);
@@ -538,6 +533,9 @@ int main(int argc, char *argv[]) {
         std::cerr << "无法创建日志文件: " << logFileName << std::endl;
         return 1;
     }
+    // 添加计时开始
+    auto total_start = std::chrono::high_resolution_clock::now();
+    
     
     logMessage("\n\n=== 🚀🚀🚀🚀网络仿真测试开始🚀🚀🚀🚀 ===\n\n");
     std::cout << "日志文件已创建: " << logFileName << std::endl;
@@ -562,9 +560,7 @@ int main(int argc, char *argv[]) {
     std::ostringstream oss;
     oss << "拓扑参数: 节点数=" << node_num << ", 交换机数=" << switch_num << ", 链路数=" << link_num;
     logMessage(oss.str());
-    
-    // Dragonfly拓扑不需要跳过第二行，直接读取链路信息
-    
+
     // 计算服务器数量
     uint32_t server_num = node_num - switch_num;
 
@@ -678,22 +674,25 @@ int main(int argc, char *argv[]) {
         
         ipv4.NewNetwork();
     }
-    // 先应用静态路由，然后用全局路由作为补充
+    // 先应用静态路由,然后用全局路由作为补充
     // 这样可以确保跨网段通信正常工作
 
     // 🔄 启用静态路由策略 - 根据dragonfly_routes.txt文件进行路由
-    // 禁用全局路由，完全依赖静态路由表配置
-    logMessage("🔄 启用静态路由策略（基于dragonfly_routes.txt）");
-    logMessage("❌ 禁用全局路由，使用手动配置的静态路由表");
+    // 禁用全局路由,完全依赖静态路由表配置
+    logMessage("🔄 启用静态路由策略(基于dragonfly_routes.txt)");
+    logMessage("❌ 禁用全局路由,使用手动配置的静态路由表");
     
     // 创建静态路由助手并应用路由表
     Ipv4StaticRoutingHelper staticRoutingHelper;
     ReadAndApplyRoutingTable(node_list, staticRoutingHelper, interface_map, server_addresses);
     
-    // ❌ 完全禁用全局路由，仅使用静态路由
+    // ❌ 完全禁用全局路由,仅使用静态路由
     // Ipv4GlobalRoutingHelper::PopulateRoutingTables(); // 已禁用
-    logMessage("✅ 静态路由配置完成，已禁用全局路由算法");
-    
+    logMessage("✅ 静态路由配置完成,已禁用全局路由算法");
+
+    auto route_end = std::chrono::high_resolution_clock::now();
+    auto route_duration = std::chrono::duration_cast<std::chrono::milliseconds>(route_end - total_start);
+    logMessage("路由配置完成,耗时: " + std::to_string(route_duration.count()) + "ms");
     // 🔍 启用简化的数据包跟踪功能
     logMessage("🔍 启用简化的数据包跟踪功能");
     
@@ -793,7 +792,7 @@ int main(int argc, char *argv[]) {
         }
     }
     
-    // 使用高级测试函数进行三个测试，包含预期路径信息
+    // 使用高级测试函数进行三个测试,包含预期路径信息
     // 测试1:  - 服务器0和服务器1 (都连接到交换机48)
     RunTestWithPath(0, 1, node_list, server_addresses, sink_port, 
                    "测试1: 服务器0 -> 服务器1", 
@@ -803,18 +802,18 @@ int main(int argc, char *argv[]) {
     // 测试2:  - 服务器1向服务器8发送数据包 (交换机48→交换机50)
     RunTestWithPath(1, 8, node_list, server_addresses, sink_port, 
                    "测试2: 服务器1 -> 服务器8", 
-                   "服务器1与交换机48直连，服务器8与交换机50直连，交换机48和交换机50直连", 2,
+                   "服务器1与交换机48直连,服务器8与交换机50直连,交换机48和交换机50直连", 2,
                    3, 3.0, 768, 15.0, 30.0);
     
     // 测试3:  - 服务器13向服务器1发送数据包 (交换机51→交换机48)
     RunTestWithPath(13, 1, node_list, server_addresses, sink_port, 
                    "测试3: 服务器13 -> 服务器1", 
-                   "服务器13与交换机51直连，服务器1与交换机48直连，交换机51与交换机48不直连，有多跳路由", 3,
+                   "服务器13与交换机51直连,服务器1与交换机48直连,交换机51与交换机48不直连,有多跳路由", 3,
                    4, 2.5, 1024, 35.0, 50.0);
     //测试4： 服务器16向服务器42发送数据包
     RunTestWithPath(16, 42, node_list, server_addresses, sink_port, 
                    "测试4: 服务器16 -> 服务器42", 
-                   "服务器16与交换机52直连，服务器42与交换机58直连，交换机52和交换机58不直连，有多跳路由", 4,
+                   "服务器16与交换机52直连,服务器42与交换机58直连,交换机52和交换机58不直连,有多跳路由", 4,
                    2, 2.0, 512, 3.0, 10.0);  
     //测试5： 服务器23向服务器35发送数据包
     RunTestWithPath(23,35, node_list, server_addresses, sink_port, 
@@ -830,7 +829,7 @@ int main(int argc, char *argv[]) {
     }
 
     // 运行仿真
-    Simulator::Stop(Seconds(55.0)); // 设置仿真停止时间，确保第三次测试完成
+    Simulator::Stop(Seconds(55.0)); // 设置仿真停止时间,确保第三次测试完成
     Simulator::Run();
     
     // 仿真结束后打印统计信息
@@ -875,12 +874,12 @@ int main(int argc, char *argv[]) {
         std::cout << "✅ 测试3成功: 服务器13 -> 服务器1" << std::endl;
         std::cout << "   服务器1总接收: " << test3.actual_bytes << " 字节 (包含测试1和测试3)" << std::endl;
     } else {
-        std::string failMsg = "❌ 测试3可能失败: 服务器13 -> 服务器1，服务器1总接收: " + 
-                            std::to_string(test3.actual_bytes) + " 字节，期望至少: " + 
+        std::string failMsg = "❌ 测试3可能失败: 服务器13 -> 服务器1,服务器1总接收: " + 
+                            std::to_string(test3.actual_bytes) + " 字节,期望至少: " + 
                             std::to_string(test3.expected_bytes) + " 字节";
         logMessage(failMsg);
         std::cout << "❌测试3可能失败: 服务器13 -> 服务器1" << std::endl;
-        std::cout << "   服务器1总接收: " << test3.actual_bytes << " 字节，期望至少: " 
+        std::cout << "   服务器1总接收: " << test3.actual_bytes << " 字节,期望至少: " 
                   << test3.expected_bytes << " 字节 (测试1+测试3)" << std::endl;
     }
     
